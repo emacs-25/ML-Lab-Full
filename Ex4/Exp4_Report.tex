@@ -1,0 +1,289 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{ICS1512 --- Machine Learning Algorithms Laboratory}
+\fancyhead[R]{Experiment 4}
+\fancyfoot[C]{\thepage}
+
+\title{\textbf{Experiment 4: Binary Classification using \\ Linear and Kernel-Based Models}}
+\author{Sri Sivasubramaniya Nadar College of Engineering, Chennai \\
+M.Tech (Integrated) Computer Science \& Engineering --- Semester V \\
+ICS1512: Machine Learning Algorithms Laboratory}
+\date{Academic Year 2026--2027 (Odd) \quad Batch: 2024--2029}
+
+\begin{document}
+
+\maketitle
+
+\section*{Objective}
+To classify emails as spam or ham using Logistic Regression and Support Vector Machine (SVM) classifiers, and to analyze the effect of hyperparameter tuning on classification performance.
+
+\section*{Dataset}
+The \textbf{Spambase} dataset (UCI Machine Learning Repository) contains 4{,}601 emails described by 57 numerical features (48 word-frequency features, 6 character-frequency features, and 3 capital-run-length features) and a binary label indicating spam or ham. No missing values were present in the dataset.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Total instances & 4{,}601 \\
+Features & 57 \\
+Missing values & 0 \\
+Class balance & ham 60.6\% (2{,}788) / spam 39.4\% (1{,}813) \\
+Train / Test split (stratified) & 3{,}680 / 921 (80 / 20) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent \textbf{Dataset link:} \url{https://archive.ics.uci.edu/dataset/94/spambase}
+
+\section{Theory Background}
+
+\subsection{Logistic Regression}
+Logistic Regression models the probability that a sample belongs to a class using the sigmoid function:
+\[
+P(y=1 \mid x) = \frac{1}{1 + e^{-(w^Tx + b)}}
+\]
+A threshold (0.5) converts the probability into a class label. The model minimizes log-loss (cross-entropy). \textbf{L1 (Lasso)} regularization encourages sparsity by shrinking coefficients toward zero, useful for feature selection; \textbf{L2 (Ridge)} penalizes large weights while retaining all features, improving generalization. The hyperparameter $C$ is the inverse regularization strength: small $C$ means strong regularization (simpler model), large $C$ means weak regularization (more complex model).
+
+\subsection{Support Vector Machine}
+SVM finds an optimal hyperplane that maximizes the margin between classes; only the support vectors define the boundary. Four kernels were evaluated: \textbf{Linear} (linearly separable data), \textbf{Polynomial} (polynomial relationships, controlled by \texttt{degree}), \textbf{RBF} (non-linear boundaries, controlled by $\gamma$), and \textbf{Sigmoid} (behaves like a neural-network activation). $C$ controls the margin-vs-misclassification trade-off; $\gamma$ controls the influence of a single training point.
+
+\section{Preprocessing and EDA}
+All 57 features were standardized to zero mean and unit variance (scaler fit on the training split only, to avoid leakage into the test set), since both Logistic Regression's regularization penalty and SVM's distance-based kernels are scale sensitive.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{fig_class_distribution.png}
+\caption{Class distribution of the Spambase dataset.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{fig_correlation.png}
+\caption{Top 15 features most correlated with the spam label. Character frequencies for \texttt{!} and \texttt{\$}, and the capital-run-length features, show the strongest positive association with spam.}
+\end{figure}
+
+\section{Hyperparameter Search Space}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Logistic Regression} & \textbf{Support Vector Machine} \\
+\midrule
+Regularization: L1, L2 & Kernel: Linear, Polynomial, RBF, Sigmoid \\
+$C \in \{0.01, 0.1, 1, 10, 100\}$ & $C \in \{0.1, 1, 10, 100\}$ \\
+Solver: liblinear, saga & $\gamma \in \{\text{scale}, \text{auto}\}$ \\
+ & Degree (Polynomial): $\{2, 3, 4\}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+5-fold Grid Search (\texttt{GridSearchCV}, \texttt{scoring=accuracy}) was used throughout. For Logistic Regression, the main grid used the \texttt{liblinear} solver (fast, supports both penalties fully); \texttt{saga} was benchmarked separately since it converges far more slowly on this dataset size.
+
+\section{Hyperparameter Tuning Results}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Model} & \textbf{Best Parameters} & \textbf{Best CV Accuracy} \\
+\midrule
+Logistic Regression & $C=100$, penalty=L1, solver=liblinear & 0.9239 \\
+SVM (best kernel: RBF) & $C=10$, $\gamma$=scale & 0.9332 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{SVM: Per-Kernel Tuning Results}
+
+\begin{center}
+\begin{tabular}{lllll}
+\toprule
+\textbf{Kernel} & \textbf{Best Params} & \textbf{Best CV Acc.} & \textbf{Test Acc.} & \textbf{Search Time (s)} \\
+\midrule
+RBF & $C=10$, $\gamma$=scale & \textbf{0.9332} & 0.9207 & 8.2 \\
+Linear & $C=100$ & 0.9304 & \textbf{0.9283} & 82.9 \\
+Polynomial & $C=10$, degree=2, $\gamma$=scale & 0.9179 & 0.9164 & 25.0 \\
+Sigmoid & $C=0.1$, $\gamma$=scale & 0.8910 & 0.8893 & 7.9 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{fig_lr_grid.png}
+\caption{Logistic Regression: CV accuracy vs. $C$, by penalty type.}
+\end{figure}
+
+\section{Logistic Regression Performance}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Metric} & \textbf{Baseline (default)} & \textbf{Tuned (Grid Search)} \\
+\midrule
+Accuracy & 0.9294 & 0.9262 \\
+Precision & 0.9209 & 0.9202 \\
+Recall & 0.8981 & 0.8898 \\
+F1 Score & 0.9093 & 0.9048 \\
+Training Time (s) & 0.013 & 0.430 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Regularization: L1 vs. L2}
+At $C=1$, neither L1 nor L2 drove any of the 57 coefficients exactly to zero (57/57 non-zero for both), and test accuracy was nearly identical (L1: 0.9273, L2: 0.9294). This indicates the predictive signal is distributed across most of the 57 features rather than concentrated in a small subset, so L1's sparsity property provided little practical benefit here.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{fig_l1_l2_coefs.png}
+\caption{Logistic Regression coefficients: L1 (Lasso) vs. L2 (Ridge) at $C=1$.}
+\end{figure}
+
+\subsection{Solver Comparison}
+\begin{center}
+\begin{tabular}{llccc}
+\toprule
+\textbf{Solver} & \textbf{Penalty} & \textbf{Fit Time (s)} & \textbf{Test Acc.} & \textbf{Iterations} \\
+\midrule
+liblinear & L1 & 0.179 & 0.9273 & 24 \\
+liblinear & L2 & 0.061 & 0.9294 & 9 \\
+saga & L1 & 5.493 & 0.9294 & 3000 (capped) \\
+saga & L2 & 2.118 & 0.9305 & 1446 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\texttt{saga} needs 35--90$\times$ longer to converge than \texttt{liblinear} for a marginal (or, for L1, no) accuracy gain, and does not fully converge for L1 within 3000 iterations --- confirming \texttt{liblinear} as the practical solver choice at this dataset size.
+
+\section{SVM Kernel-wise Performance}
+
+\subsection{Default Hyperparameters ($C=1$, $\gamma$=scale, degree=3)}
+\begin{center}
+\begin{tabular}{lllll}
+\toprule
+\textbf{Kernel} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{Training Time (s)} \\
+\midrule
+Linear & 0.9294 & 0.9209 & 0.8981 & 0.348 \\
+Polynomial (deg 3) & 0.7796 & 0.9598 & 0.4601 & 0.291 \\
+RBF & 0.9273 & 0.9277 & 0.8843 & 0.187 \\
+Sigmoid & 0.8849 & 0.8599 & 0.8457 & 0.242 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The default-degree polynomial kernel is a striking outlier: very high precision (0.96) but very poor recall (0.46), missing more than half of all spam emails. This is corrected substantially once \texttt{degree} is tuned down to 2 (Section 5.1), confirming the default degree of 3 was overfitting.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{fig_svm_kernels.png}
+\caption{SVM kernel comparison at default hyperparameters.}
+\end{figure}
+
+\section{Model Evaluation}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Metric} & \textbf{Logistic Regression (tuned)} & \textbf{SVM RBF (tuned)} \\
+\midrule
+Accuracy & 0.9262 & 0.9207 \\
+Precision & 0.9202 & 0.9143 \\
+Recall & 0.8898 & 0.8815 \\
+F1 Score & 0.9048 & 0.8976 \\
+Training/Search Time (s) & 0.43 & 8.18 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{fig_confusion_matrices.png}
+\caption{Confusion matrices for the tuned Logistic Regression and tuned SVM (RBF) models on the test set.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.65\textwidth]{fig_roc.png}
+\caption{ROC curves comparing tuned Logistic Regression and tuned SVM (RBF).}
+\end{figure}
+
+\section{K-Fold Cross-Validation Results (K = 5)}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Fold} & \textbf{Logistic Regression} & \textbf{SVM (RBF)} \\
+\midrule
+Fold 1 & 0.9416 & 0.9443 \\
+Fold 2 & 0.9253 & 0.9416 \\
+Fold 3 & 0.9348 & 0.9348 \\
+Fold 4 & 0.9117 & 0.9307 \\
+Fold 5 & 0.9171 & 0.9266 \\
+\midrule
+\textbf{Average} & \textbf{0.9261} ($\pm$0.0110) & \textbf{0.9356} ($\pm$0.0066) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{fig_cv_folds.png}
+\caption{5-fold cross-validation accuracy per fold, Logistic Regression vs. SVM (RBF).}
+\end{figure}
+
+Under 5-fold CV, SVM (RBF) is ahead of Logistic Regression in \emph{every single fold}, with a higher mean accuracy (0.9356 vs.\ 0.9261) and lower fold-to-fold variance ($\pm$0.0066 vs.\ $\pm$0.0110). This is notable because on the single fixed test split above, Logistic Regression appeared marginally ahead (0.9262 vs.\ 0.9207) --- a reminder that a single train/test split can disagree with the more robust, averaged cross-validation signal, and that CV accuracy is the more trustworthy criterion for model selection.
+
+\section{Comparative Analysis}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Criterion} & \textbf{Logistic Regression} & \textbf{SVM} \\
+\midrule
+Accuracy (5-fold CV) & 0.9261 & \textbf{0.9356} \\
+Model Complexity & Low & High \\
+Training Time & Low & High \\
+Interpretability & High & Low \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Observations}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Best-performing classifier:} SVM with an RBF kernel achieves the highest and most stable cross-validated accuracy, though tuned Logistic Regression remains competitive and is $\sim$20$\times$ faster to train while being far more interpretable.
+  \item \textbf{Impact of regularization:} Weakening regularization (increasing $C$) steadily improved CV accuracy for Logistic Regression up to $C{=}100$, after which the model performs best with almost no penalty applied --- consistent with predictive signal being broadly distributed across the standardized feature set rather than concentrated in a few dominant predictors.
+  \item \textbf{Kernel behavior in SVM:} RBF handled the mild non-linearity in the data best after tuning; the polynomial kernel was highly sensitive to \texttt{degree} (severe recall collapse at the untuned default of 3); the sigmoid kernel was consistently the weakest, being more sensitive to feature scale and hyperparameter choice.
+  \item \textbf{Bias--variance trade-off:} Logistic Regression, as a linear model, has higher bias but showed higher variance across CV folds in this run ($\pm$0.0110); SVM (RBF) achieved lower bias via its non-linear boundary while also showing lower variance ($\pm$0.0066) at the selected, moderately regularized $C{=}10$ --- indicating the added flexibility was not spilling over into instability here. The clearest overfitting symptom observed overall was the default-degree polynomial kernel's severe precision/recall imbalance.
+\end{itemize}
+
+\section{Learning Outcomes}
+\begin{itemize}[leftmargin=*]
+  \item Understood probabilistic (Logistic Regression) and margin-based (SVM) binary classifiers.
+  \item Applied 5-fold Grid Search hyperparameter tuning across both model families.
+  \item Evaluated classification models using accuracy, precision, recall, F1-score, confusion matrices, and ROC-AUC.
+  \item Interpreted experimental results, including cases where single-split test accuracy and cross-validated accuracy disagreed, and used that disagreement to reason about which signal is more trustworthy for model selection.
+\end{itemize}
+
+\section*{References}
+\begin{itemize}[leftmargin=*]
+  \item Scikit-learn: Logistic Regression --- \url{https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression}
+  \item Scikit-learn: Support Vector Machines --- \url{https://scikit-learn.org/stable/modules/svm.html}
+  \item Scikit-learn: Hyperparameter Optimization --- \url{https://scikit-learn.org/stable/modules/grid_search.html}
+  \item UCI ML Repository --- Spambase --- \url{https://archive.ics.uci.edu/dataset/94/spambase}
+\end{itemize}
+
+\end{document}

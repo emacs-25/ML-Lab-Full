@@ -1,0 +1,251 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{amsmath}
+
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codekw}{RGB}{0,0,180}
+\definecolor{codecomment}{RGB}{100,100,100}
+\definecolor{codestr}{RGB}{163,21,21}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestr},
+  breaklines=true,
+  frame=single,
+  language=Python,
+  numbers=left,
+  numberstyle=\tiny,
+  xleftmargin=2em,
+  showstringspaces=false
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{ICS1512 --- ML Algorithms Lab}
+\lhead{Experiment 1}
+\cfoot{\thepage}
+
+\title{\textbf{Experiment 1: Working with Python Packages --- \\ NumPy, SciPy, Scikit-Learn, Matplotlib}}
+\author{
+  M.Tech (Integrated) Computer Science \& Engineering \\
+  ICS1512 --- Machine Learning Algorithms Laboratory \\
+  Sri Sivasubramaniya Nadar College of Engineering, Chennai
+}
+\date{Academic Year 2026--2027 (Odd) \quad Batch: 2024--2029}
+
+\begin{document}
+\maketitle
+
+\section*{Aim}
+To explore the core functions of the Python libraries \textbf{NumPy}, \textbf{Pandas}, \textbf{SciPy},
+\textbf{Scikit-learn}, and \textbf{Matplotlib}; to download benchmark datasets from public repositories
+(UCI/Kaggle) and identify the appropriate machine learning model for each; and to carry out the complete
+machine learning workflow --- data loading, exploratory data analysis, preprocessing, feature selection,
+data splitting, and performance evaluation --- on five representative datasets.
+
+\section{Library Exploration}
+
+\subsection{NumPy}
+NumPy provides the \texttt{ndarray} object for fast, vectorized numerical computation. Key operations
+explored include array creation (\texttt{zeros}, \texttt{ones}, \texttt{arange}, \texttt{linspace}),
+indexing/slicing, reshaping, element-wise arithmetic with broadcasting, matrix operations
+(\texttt{dot}, transpose, determinant, inverse), boolean masking, and random number generation.
+
+\begin{lstlisting}
+a = np.array([1, 2, 3, 4, 5])
+mat = np.arange(12).reshape(3, 4)
+print("Sum:", a.sum(), "Mean:", a.mean(), "Std:", a.std())
+print(np.dot(m1, m2))          # matrix multiplication
+print(np.linalg.inv(m1))       # matrix inverse
+\end{lstlisting}
+
+\subsection{Pandas}
+Pandas builds on NumPy to provide labeled \texttt{Series} and \texttt{DataFrame} structures for
+tabular data. Operations explored include DataFrame creation, inspection (\texttt{info}, \texttt{describe}),
+boolean filtering, handling missing values with \texttt{fillna}, and aggregation via \texttt{groupby}.
+
+\begin{lstlisting}
+df = pd.DataFrame({"Name": [...], "Age": [...], "Marks": [...]})
+df2.fillna(df2["Marks"].mean())
+df.groupby("Result")["Marks"].mean()
+\end{lstlisting}
+
+\subsection{SciPy}
+SciPy extends NumPy with modules for statistics (\texttt{scipy.stats}), special functions
+(\texttt{scipy.special}), and linear algebra (\texttt{scipy.linalg}). Descriptive statistics
+(mean, median, mode, skewness, kurtosis), a one-sample $t$-test, the Gamma function, and solving a
+linear system $Ax = b$ were demonstrated.
+
+\begin{lstlisting}
+t_stat, p_val = stats.ttest_1samp(data, popmean=15)
+x = linalg.solve(A, b)
+\end{lstlisting}
+
+\subsection{Matplotlib}
+Matplotlib was used to generate line plots, scatter plots, bar charts, and histograms in a single
+$2\times2$ subplot grid, illustrating the core visualization primitives used throughout EDA
+(Figure~\ref{fig:matplotlib}).
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figs/fig_01.png}
+  \caption{Matplotlib: line, scatter, bar, and histogram plots.}
+  \label{fig:matplotlib}
+\end{figure}
+
+\subsection{Scikit-learn}
+Scikit-learn provides a uniform \texttt{fit}/\texttt{predict}/\texttt{transform} API for the ML
+workflow. A baseline tour --- loading the Iris dataset, splitting it, scaling with
+\texttt{StandardScaler}, and fitting a \texttt{LogisticRegression} classifier --- was carried out to
+illustrate this pattern before applying it across all five datasets.
+
+\section{Dataset Exploration and ML Task Identification}
+
+Public datasets analogous to those in the UCI Machine Learning Repository and Kaggle were used. Since
+Iris, the Diabetes-progression dataset, and 8$\times$8 handwritten digit images (a lightweight stand-in
+for MNIST) are bundled directly with Scikit-learn, they were loaded via
+\texttt{sklearn.datasets}. The Loan Amount Prediction and Email Spam datasets are not bundled with
+Scikit-learn, so structurally faithful synthetic datasets (same feature schema as the Kaggle/UCI
+originals) were generated in code; in an environment with open internet access these loading cells
+should be replaced with \texttt{pd.read\_csv(...)} on the downloaded CSV files.
+
+\subsection{Iris Dataset --- Classification}
+Four numeric features (sepal/petal length and width) are used to classify flowers into three species.
+Figure~\ref{fig:iris} shows the sepal-length distribution by species and the petal length--width
+scatter plot, which shows near-perfect linear separability between classes.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/fig_02.png}
+  \caption{Iris EDA: sepal length distribution and petal length vs.\ width by species.}
+  \label{fig:iris}
+\end{figure}
+
+An ANOVA F-test (\texttt{SelectKBest}) ranked petal length and petal width as the most discriminative
+features. A \texttt{DecisionTreeClassifier} trained on an 80/20 split achieved high accuracy, confirmed
+by the confusion matrix in Figure~\ref{fig:iris_cm}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\linewidth]{figs/fig_04.png}
+  \caption{Iris --- Decision Tree confusion matrix on the held-out test set.}
+  \label{fig:iris_cm}
+\end{figure}
+
+\subsection{Loan Amount Prediction --- Regression}
+The target variable (loan amount, a continuous quantity) makes this a \textbf{regression} problem.
+Missing values in \texttt{LoanAmount} and \texttt{CreditHistory} were imputed (median/most-frequent),
+categorical fields (\texttt{Education}, \texttt{PropertyArea}) were one-hot encoded, and numeric
+fields were standardized inside a \texttt{ColumnTransformer} pipeline. Figure~\ref{fig:loan} shows the
+loan-amount distribution and its spread across property-area categories.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/fig_05.png}
+  \caption{Loan dataset EDA: loan amount distribution and boxplot by property area.}
+  \label{fig:loan}
+\end{figure}
+
+A \texttt{LinearRegression} model was fit on the preprocessed features and evaluated using MAE and
+$R^2$, both reported directly in the notebook output.
+
+\subsection{Predicting Diabetes --- Classification}
+The Scikit-learn diabetes-progression target (a continuous disease-progression score) was binarized
+around its median to reproduce the classic diabetes-risk \textbf{classification} task. A Chi-square
+test (after min--max scaling to non-negative values) ranked feature importance, and a
+\texttt{RandomForestClassifier} was trained and evaluated. Figure~\ref{fig:diab} shows the feature
+correlation heatmap and BMI distribution by class.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/fig_06.png}
+  \includegraphics[width=0.45\linewidth]{figs/fig_07.png}
+  \caption{Diabetes dataset: feature correlation heatmap and BMI by diabetic class.}
+  \label{fig:diab}
+\end{figure}
+
+\subsection{Email Spam Classification --- Classification}
+Word-frequency-style numeric features (frequency of ``free'', ``win'', ``offer'', capital-run length,
+number of links) were used to classify messages as spam or not spam, mirroring the UCI Spambase
+schema. Figure~\ref{fig:spam} shows the clear separation in the frequency of the word ``free'' and in
+capital-run length between spam and non-spam classes. An ANOVA F-test ranked feature relevance, and a
+\texttt{GaussianNB} classifier was trained on standardized features.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/fig_08.png}
+  \caption{Spam dataset EDA: word-frequency and capital-run-length distributions by class.}
+  \label{fig:spam}
+\end{figure}
+
+\subsection{Handwritten Character Recognition (MNIST-style) --- Classification}
+The Scikit-learn \texttt{load\_digits} dataset (8$\times$8 grayscale images of digits 0--9,
+1{,}797 samples) was used as a lightweight stand-in for the full 28$\times$28 MNIST dataset.
+Figure~\ref{fig:digits} shows sample digit images. Pixel intensities were standardized and a
+\texttt{Support Vector Machine} (RBF kernel) was trained, achieving high classification accuracy; the
+confusion matrix is shown in Figure~\ref{fig:digits_cm}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/fig_09.png}
+  \caption{Sample handwritten digit images from the dataset.}
+  \label{fig:digits}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.55\linewidth]{figs/fig_10.png}
+  \caption{Handwritten digits --- SVM confusion matrix on the held-out test set.}
+  \label{fig:digits_cm}
+\end{figure}
+
+\section{Summary Table}
+
+\begin{longtable}{p{3.2cm} p{2.8cm} p{3.3cm} p{4cm}}
+\toprule
+\textbf{Dataset} & \textbf{Type of ML Task} & \textbf{Feature Selection Technique} & \textbf{Suitable ML Algorithm} \\
+\midrule
+\endhead
+Iris Dataset & Classification (Supervised) & ANOVA F-test (SelectKBest) & Decision Tree / Logistic Regression \\
+Loan Amount Prediction & Regression (Supervised) & Correlation / domain-based selection & Linear Regression \\
+Predicting Diabetes & Classification (Supervised) & Chi-square test & Random Forest Classifier \\
+Classification of Email Spam & Classification (Supervised) & ANOVA F-test (SelectKBest) & Naive Bayes / Logistic Regression \\
+Handwritten Character Recognition / MNIST & Classification (Supervised) & Variance / PCA on pixel intensities & Support Vector Machine (SVM) / CNN \\
+\bottomrule
+\end{longtable}
+
+\section{Inference and Learning Outcomes}
+\begin{itemize}
+  \item \textbf{NumPy} underlies all numerical computation in the ML stack through fast, vectorized
+        array operations, broadcasting, and linear algebra routines.
+  \item \textbf{Pandas} provides labeled tabular structures with built-in tools for cleaning, filtering,
+        grouping, and merging real-world data.
+  \item \textbf{SciPy} extends NumPy with statistical tests and scientific routines needed for
+        hypothesis testing and numerical solving.
+  \item \textbf{Matplotlib/Seaborn} make exploratory visualization possible, revealing distribution
+        shape, class separability, outliers, and feature correlations before modeling.
+  \item \textbf{Scikit-learn} unifies preprocessing, feature selection, model fitting, and evaluation
+        behind a single consistent API.
+  \item Across the five datasets, tasks spanned \textbf{multi-class classification} (Iris, Digits,
+        Spam, Diabetes) and \textbf{regression} (Loan Amount), demonstrating how task type governs the
+        choice of algorithm, evaluation metric (accuracy/F1 vs.\ MAE/$R^2$), and feature-selection
+        method (ANOVA/Chi-square for classification, correlation-based methods for regression).
+  \item Careful \textbf{preprocessing} (imputation, encoding, scaling) and a proper
+        \textbf{train/test split} were essential in every case for obtaining reliable, generalizable
+        performance estimates.
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,30 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdftex 2026.9.21)  21 SEP 2026 13:29
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**Exp4_Report.tex
+(./Exp4_Report.tex
+! Undefined control sequence.
+l.1 \documentclass
+                  [11pt]{article}
+? 
+! Undefined control sequence.
+l.2 \usepackage
+               [margin=1in]{geometry}
+? 
+! Interruption.
+<to be read again> 
+                   [
+l.2 \usepackage[
+                margin=1in]{geometry}
+? 
+! Undefined control sequence.
+l.3 \usepackage
+               {graphicx}
+? 
+! Emergency stop.
+l.3 \usepackage
+               {graphicx}
+End of file on the terminal!
+
+!  ==> Fatal error occurred, no output PDF file produced!

@@ -1,0 +1,524 @@
+#+TITLE: ICS1512 -- Machine Learning Laboratory
+#+AUTHOR: Max
+#+OPTIONS: toc:nil num:t
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [12pt,a4paper]
+#+LATEX_HEADER: \usepackage[a4paper,margin=1in]{geometry}
+#+LATEX_HEADER: \usepackage{graphicx}
+#+LATEX_HEADER: \usepackage{booktabs}
+#+LATEX_HEADER: \usepackage{amsmath,amssymb}
+#+LATEX_HEADER: \usepackage{float}
+#+LATEX_HEADER: \usepackage{hyperref}
+#+LATEX_HEADER: \usepackage{xcolor}
+#+LATEX_HEADER: \usepackage{listings}
+#+LATEX_HEADER: \usepackage{enumitem}
+#+LATEX_HEADER: \usepackage{fancyhdr}
+#+LATEX_HEADER: \usepackage{longtable}
+#+LATEX_HEADER: \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+#+LATEX_HEADER: \pagestyle{fancy}
+#+LATEX_HEADER: \fancyhf{}
+#+LATEX_HEADER: \lhead{ICS1512}
+#+LATEX_HEADER: \rhead{Machine Learning Algorithms Laboratory}
+#+LATEX_HEADER: \cfoot{\thepage}
+#+LATEX_HEADER: \lstset{language=Python,basicstyle=\ttfamily\small,numbers=left,frame=single,breaklines=true,showstringspaces=false}
+
+#+PROPERTY: header-args:python :session exp7 :exports both :eval never-export :tangle experiment_code.py
+
+* Cover
+#+ATTR_LATEX: :environment tabular :align |p{4cm}|p{11cm}|
+| Experiment No.   | 7                                                          |
+| Experiment Title | Bagging, Boosting, and Stacked Ensemble Models            |
+| Student Name     | Emmanuel Maximus Ravichandran                              |
+| Register Number  | 3122247001015                                              |
+| Faculty          | Dr. Poreddy Ajay Kumar Reddy                              |
+| Submission Date  |                                                            |
+
+* Objective
+- To understand ensemble learning strategies: Bagging, Boosting, and Stacking.
+- To implement Bagging and Boosting classifiers.
+- To build a Stacked Ensemble model using multiple base learners.
+- To compare ensemble models in terms of accuracy, stability, and generalization.
+- To analyze the effect of ensemble methods on bias and variance.
+
+* Problem Statement
+Given the Wisconsin Diagnostic Breast Cancer (WDBC) dataset of 569 samples described by 30
+numerical features computed from digitized images of a breast mass, the task is to classify each
+sample as *Malignant* or *Benign*. Three ensemble strategies -- Bagging, Boosting, and Stacking --
+are implemented, tuned via 5-fold cross-validation, and compared to determine which combination
+strategy generalizes best on unseen data.
+
+* Dataset Description
+#+ATTR_LATEX: :environment longtable :align |p{6cm}|p{8cm}|
+| Dataset Name       | Wisconsin Diagnostic Breast Cancer (WDBC)          |
+| Dataset Source     | UCI ML Repository / =sklearn.datasets.load_breast_cancer= |
+| Number of Samples  | 569                                                 |
+| Number of Features | 30 numerical attributes                             |
+| Number of Classes  | 2 (Malignant, Benign)                               |
+| Missing Values     | None                                                 |
+| Train-Test Split   | 80--20, stratified                                  |
+
+* Setup and Imports
+
+#+begin_src python
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split, GridSearchCV, learning_curve, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
+                              confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc,
+                              RocCurveDisplay, classification_report)
+
+sns.set_style("whitegrid")
+plt.rcParams["figure.figsize"] = (7, 5)
+RANDOM_STATE = 42
+np.random.seed(RANDOM_STATE)
+print("Ready")
+#+end_src
+
+#+begin_src python
+data = load_breast_cancer()
+df = pd.DataFrame(data.data, columns=data.feature_names)
+df["target"] = data.target  # 0 = malignant, 1 = benign
+target_names = data.target_names
+print("Dataset shape:", df.shape)
+#+end_src
+
+* Exploratory Data Analysis
+Include all relevant visualizations.
+- Dataset overview
+- Statistical summary
+- Missing value analysis
+- Class distribution
+- Correlation matrix
+- Feature distribution
+
+#+begin_src python :results output
+print(df.describe().T.to_string())
+print("\nMissing values total:", df.isnull().sum().sum())
+#+end_src
+
+#+begin_src python :results file :file class_distribution.png
+plt.figure(figsize=(5,4))
+ax = sns.countplot(x=df["target"].map({0:"Malignant", 1:"Benign"}))
+plt.title("Class Distribution")
+plt.xlabel("Diagnosis")
+plt.ylabel("Count")
+for p in ax.patches:
+    ax.annotate(int(p.get_height()), (p.get_x()+p.get_width()/2, p.get_height()), ha="center", va="bottom")
+plt.tight_layout()
+plt.savefig("class_distribution.png")
+plt.close()
+"class_distribution.png"
+#+end_src
+
+#+CAPTION: Class Distribution of Malignant vs Benign samples
+#+ATTR_LATEX: :width 0.6\linewidth :placement [H]
+#+RESULTS:
+
+*Inference:* The dataset shows a moderate class imbalance, with more benign than malignant
+samples. This should be kept in mind when interpreting raw accuracy, and is why precision,
+recall, and F1-score are also reported alongside accuracy for every model.
+
+#+begin_src python :results file :file correlation_matrix.png
+plt.figure(figsize=(14,12))
+corr = df.drop(columns=["target"]).corr()
+sns.heatmap(corr, cmap="coolwarm", center=0, square=True, cbar_kws={"shrink":0.6})
+plt.title("Correlation Matrix of Features")
+plt.tight_layout()
+plt.savefig("correlation_matrix.png")
+plt.close()
+"correlation_matrix.png"
+#+end_src
+
+#+CAPTION: Correlation matrix of the 30 WDBC features
+#+ATTR_LATEX: :width 0.9\linewidth :placement [H]
+#+RESULTS:
+
+*Inference:* Several groups of features (e.g. mean radius, mean perimeter, mean area) are highly
+correlated since they are geometric derivatives of one another. This multicollinearity is well
+tolerated by tree-based and margin-based ensemble members but is useful context when interpreting
+feature importance.
+
+#+begin_src python :results file :file feature_distributions.png
+cols_to_plot = ["mean radius", "mean texture", "mean perimeter", "mean area",
+                "mean smoothness", "mean concavity"]
+fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+for ax, col in zip(axes.ravel(), cols_to_plot):
+    sns.histplot(data=df, x=col, hue=df["target"].map({0:"Malignant",1:"Benign"}), kde=True, ax=ax)
+    ax.set_title(col)
+plt.tight_layout()
+plt.savefig("feature_distributions.png")
+plt.close()
+"feature_distributions.png"
+#+end_src
+
+#+CAPTION: Distribution of representative mean-value features by class
+#+ATTR_LATEX: :width 0.95\linewidth :placement [H]
+#+RESULTS:
+
+*Inference:* Malignant and benign samples show visibly different distributions for several mean
+features (larger radius/perimeter/area/concavity tend to be malignant), confirming these features
+carry discriminative signal for the ensembles built below.
+
+* Data Preprocessing
+- Missing value handling: none required (no missing values in WDBC).
+- Encoding: target is already numeric (0/1); no categorical encoding needed.
+- Feature scaling: =StandardScaler= applied (fit on train, applied to test) since SVM and
+  Logistic Regression in the stacking ensemble are scale-sensitive.
+- Train-test split: 80--20, stratified on the target to preserve class balance.
+- Feature engineering: none applied; all 30 original features are used directly.
+
+#+begin_src python :results output
+X = df.drop(columns=["target"])
+y = df["target"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.20, stratify=y, random_state=RANDOM_STATE
+)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+print("Train shape:", X_train.shape, " Test shape:", X_test.shape)
+#+end_src
+
+* Machine Learning Algorithm
+
+** Bagging (Bootstrap Aggregation)
+- Working principle: trains many independent copies of a base estimator (Decision Tree here) on
+  different bootstrap resamples of the training data, then aggregates predictions by majority vote.
+- Mathematical formulation: for $B$ bootstrap samples, the ensemble prediction is
+  $\hat{y} = \text{mode}\{h_1(x), h_2(x), \ldots, h_B(x)\}$, where each $h_b$ is trained on a
+  resample $D_b$ drawn with replacement from $D$.
+- Advantages: reduces variance, parallelizable, works well with high-variance base learners.
+- Limitations: does little to reduce bias; large ensembles increase inference cost.
+
+** Boosting (AdaBoost / Gradient Boosting)
+- Working principle: builds an additive model sequentially, where each new weak learner focuses on
+  the samples the previous ensemble misclassified (AdaBoost re-weights samples; Gradient Boosting
+  fits new learners to the residual/gradient of the loss).
+- Mathematical formulation: $F_m(x) = F_{m-1}(x) + \gamma_m h_m(x)$, where $h_m$ is chosen to
+  minimize the loss given the current ensemble $F_{m-1}$.
+- Advantages: reduces bias, often achieves very high accuracy.
+- Limitations: sequential (harder to parallelize), sensitive to noisy data/outliers, more prone to
+  overfitting if not regularized (learning rate, depth, number of estimators).
+
+** Stacked Ensemble (Stacking)
+- Working principle: trains several heterogeneous base learners (SVM, Naive Bayes, Decision Tree),
+  then trains a meta-learner (Logistic Regression) on their out-of-fold predictions to learn the
+  optimal way to combine them.
+- Mathematical formulation: $\hat{y} = g(h_1(x), h_2(x), \ldots, h_K(x))$, where $g$ is the
+  meta-learner and $h_1, \ldots, h_K$ are the base learners.
+- Advantages: exploits complementary strengths of diverse models; often outperforms any single base
+  learner or a homogeneous ensemble.
+- Limitations: more complex and computationally expensive; risk of overfitting the meta-learner if
+  base-learner predictions aren't produced out-of-fold (mitigated here via internal CV in
+  =StackingClassifier=).
+
+* Experimental Setup
+#+ATTR_LATEX: :environment tabular :align ll
+| Python Version       |            |
+| Scikit-Learn Version |            |
+| IDE                  |            |
+| Operating System     |            |
+| Hardware             |            |
+
+#+begin_src python :results output
+import sys, sklearn, platform
+print("Python:", sys.version.split()[0])
+print("scikit-learn:", sklearn.__version__)
+print("Platform:", platform.platform())
+#+end_src
+
+* Hyperparameter Selection
+
+** Bagging
+#+begin_src python :results output
+bagging_param_grid = {
+    "n_estimators": [10, 25, 50, 100],
+    "max_samples": [0.5, 0.7, 1.0],
+    "max_features": [0.5, 0.7, 1.0],
+}
+
+bagging_base = BaggingClassifier(
+    estimator=DecisionTreeClassifier(random_state=RANDOM_STATE),
+    random_state=RANDOM_STATE
+)
+
+cv5 = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+
+bagging_grid = GridSearchCV(
+    bagging_base, bagging_param_grid, cv=cv5,
+    scoring={"accuracy": "accuracy", "f1": "f1"}, refit="accuracy", n_jobs=-1
+)
+bagging_grid.fit(X_train_scaled, y_train)
+
+bagging_results = pd.DataFrame(bagging_grid.cv_results_)[
+    ["param_n_estimators", "param_max_samples", "param_max_features",
+     "mean_test_accuracy", "mean_test_f1"]
+].rename(columns={
+    "param_n_estimators": "n_estimators",
+    "param_max_samples": "max_samples",
+    "param_max_features": "max_features",
+    "mean_test_accuracy": "Avg CV Accuracy",
+    "mean_test_f1": "Avg CV F1 Score",
+})
+bagging_results["Avg CV Accuracy (%)"] = (bagging_results["Avg CV Accuracy"] * 100).round(2)
+bagging_results = bagging_results[["n_estimators", "max_samples", "max_features",
+                                    "Avg CV Accuracy (%)", "Avg CV F1 Score"]]
+print(bagging_results.sort_values("Avg CV Accuracy (%)", ascending=False).head(10).to_string(index=False))
+print("\nBest Bagging params:", bagging_grid.best_params_)
+print("Best Bagging CV accuracy: {:.4f}".format(bagging_grid.best_score_))
+best_bagging = bagging_grid.best_estimator_
+#+end_src
+
+** Boosting
+#+begin_src python :results output
+ada_param_grid = {
+    "n_estimators": [50, 100, 150],
+    "learning_rate": [0.01, 0.1, 0.5, 1.0],
+}
+ada_base = AdaBoostClassifier(random_state=RANDOM_STATE)
+ada_grid = GridSearchCV(ada_base, ada_param_grid, cv=cv5,
+                         scoring={"accuracy": "accuracy", "f1": "f1"}, refit="accuracy", n_jobs=-1)
+ada_grid.fit(X_train_scaled, y_train)
+ada_results = pd.DataFrame(ada_grid.cv_results_)[
+    ["param_n_estimators", "param_learning_rate", "mean_test_accuracy", "mean_test_f1"]
+].rename(columns={"param_n_estimators": "n_estimators", "param_learning_rate": "learning_rate",
+                   "mean_test_accuracy": "Avg CV Accuracy", "mean_test_f1": "Avg CV F1 Score"})
+ada_results["Avg CV Accuracy (%)"] = (ada_results["Avg CV Accuracy"] * 100).round(2)
+ada_results = ada_results[["n_estimators", "learning_rate", "Avg CV Accuracy (%)", "Avg CV F1 Score"]]
+print("=== AdaBoost ===")
+print(ada_results.sort_values("Avg CV Accuracy (%)", ascending=False).head(10).to_string(index=False))
+print("Best params:", ada_grid.best_params_, " Best CV accuracy: {:.4f}".format(ada_grid.best_score_))
+#+end_src
+
+#+begin_src python :results output
+gb_param_grid = {
+    "n_estimators": [50, 100, 150],
+    "learning_rate": [0.01, 0.1, 0.2],
+    "max_depth": [2, 3, 4],
+}
+gb_base = GradientBoostingClassifier(random_state=RANDOM_STATE)
+gb_grid = GridSearchCV(gb_base, gb_param_grid, cv=cv5,
+                        scoring={"accuracy": "accuracy", "f1": "f1"}, refit="accuracy", n_jobs=-1)
+gb_grid.fit(X_train_scaled, y_train)
+gb_results = pd.DataFrame(gb_grid.cv_results_)[
+    ["param_n_estimators", "param_learning_rate", "param_max_depth", "mean_test_accuracy", "mean_test_f1"]
+].rename(columns={"param_n_estimators": "n_estimators", "param_learning_rate": "learning_rate",
+                   "param_max_depth": "max_depth", "mean_test_accuracy": "Avg CV Accuracy",
+                   "mean_test_f1": "Avg CV F1 Score"})
+gb_results["Avg CV Accuracy (%)"] = (gb_results["Avg CV Accuracy"] * 100).round(2)
+gb_results = gb_results[["n_estimators", "learning_rate", "max_depth", "Avg CV Accuracy (%)", "Avg CV F1 Score"]]
+print("=== Gradient Boosting ===")
+print(gb_results.sort_values("Avg CV Accuracy (%)", ascending=False).head(10).to_string(index=False))
+print("Best params:", gb_grid.best_params_, " Best CV accuracy: {:.4f}".format(gb_grid.best_score_))
+
+if ada_grid.best_score_ >= gb_grid.best_score_:
+    best_boosting = ada_grid.best_estimator_
+    best_boosting_name = "AdaBoost"
+else:
+    best_boosting = gb_grid.best_estimator_
+    best_boosting_name = "Gradient Boosting"
+print("Selected boosting model:", best_boosting_name)
+#+end_src
+
+** Stacked Ensemble
+#+begin_src python :results output
+stack_base = StackingClassifier(
+    estimators=[
+        ("svm", SVC(probability=True, random_state=RANDOM_STATE)),
+        ("nb", GaussianNB()),
+        ("dt", DecisionTreeClassifier(random_state=RANDOM_STATE)),
+    ],
+    final_estimator=LogisticRegression(max_iter=1000, random_state=RANDOM_STATE),
+    cv=5
+)
+
+stack_param_grid_full = {
+    "svm__C": [0.1, 1, 10],
+    "svm__kernel": ["linear", "rbf"],
+    "dt__max_depth": [3, 5, None],
+    "final_estimator__C": [0.1, 1, 10],
+}
+
+stack_grid = GridSearchCV(stack_base, stack_param_grid_full, cv=cv5,
+                           scoring={"accuracy": "accuracy", "f1": "f1"}, refit="accuracy", n_jobs=-1)
+stack_grid.fit(X_train_scaled, y_train)
+
+stack_results = pd.DataFrame(stack_grid.cv_results_)[
+    ["param_svm__C", "param_svm__kernel", "param_dt__max_depth", "param_final_estimator__C",
+     "mean_test_accuracy", "mean_test_f1"]
+].rename(columns={"param_svm__C": "SVM C", "param_svm__kernel": "SVM kernel",
+                   "param_dt__max_depth": "DT max_depth", "param_final_estimator__C": "LogReg C",
+                   "mean_test_accuracy": "Avg CV Accuracy", "mean_test_f1": "Avg CV F1 Score"})
+stack_results["Avg CV Accuracy (%)"] = (stack_results["Avg CV Accuracy"] * 100).round(2)
+stack_results = stack_results[["SVM C", "SVM kernel", "DT max_depth", "LogReg C",
+                                "Avg CV Accuracy (%)", "Avg CV F1 Score"]]
+print(stack_results.sort_values("Avg CV Accuracy (%)", ascending=False).head(10).to_string(index=False))
+print("\nBest Stacking params:", stack_grid.best_params_)
+print("Best Stacking CV accuracy: {:.4f}".format(stack_grid.best_score_))
+best_stacking = stack_grid.best_estimator_
+#+end_src
+
+* Results
+
+#+ATTR_LATEX: :environment tabular :align lc
+| Metric    | Value |
+|-----------|-------|
+| Accuracy  |       |
+| Precision |       |
+| Recall    |       |
+| F1-score  |       |
+| ROC-AUC   |       |
+
+*(Fill using the best-performing model's row from the Performance Comparison table produced below.)*
+
+#+begin_src python :results output
+models = {
+    "Bagging": best_bagging,
+    f"Boosting ({best_boosting_name})": best_boosting,
+    "Stacked Ensemble": best_stacking,
+}
+
+results_table = []
+roc_data = {}
+
+for name, model in models.items():
+    y_pred = model.predict(X_test_scaled)
+    y_proba = model.predict_proba(X_test_scaled)[:, 1]
+    acc = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred)
+    rec = recall_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred)
+    fpr, tpr, _ = roc_curve(y_test, y_proba)
+    roc_auc = auc(fpr, tpr)
+    roc_data[name] = (fpr, tpr, roc_auc)
+    results_table.append({
+        "Model": name, "Accuracy (%)": round(acc * 100, 2), "Precision": round(prec, 4),
+        "Recall": round(rec, 4), "F1 Score": round(f1, 4), "ROC-AUC": round(roc_auc, 4),
+    })
+
+performance_df = pd.DataFrame(results_table)
+print(performance_df.to_string(index=False))
+#+end_src
+
+* Result Visualization
+Include all graphs generated during the experiment. For every graph: figure, caption, and 3--5
+line inference.
+
+Recommended figures: Correlation Matrix (above), Class Distribution (above), Confusion Matrix, ROC
+Curve, Learning Curve. (Feature Importance is not directly applicable to the Naive Bayes / SVM
+components of the stack and is omitted; Precision-Recall curves can be added analogously to the
+ROC curve code below if required.)
+
+#+begin_src python :results file :file confusion_matrices.png
+fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+for ax, (name, model) in zip(axes, models.items()):
+    y_pred = model.predict(X_test_scaled)
+    cm = confusion_matrix(y_test, y_pred)
+    ConfusionMatrixDisplay(cm, display_labels=target_names).plot(ax=ax, colorbar=False, cmap="Blues")
+    ax.set_title(name)
+plt.tight_layout()
+plt.savefig("confusion_matrices.png")
+plt.close()
+"confusion_matrices.png"
+#+end_src
+
+#+CAPTION: Confusion matrices for Bagging, Boosting, and Stacked Ensemble on the test set
+#+ATTR_LATEX: :width 0.95\linewidth :placement [H]
+#+RESULTS:
+
+*Inference:* Compare the false-negative counts (malignant misclassified as benign) across the
+three models -- this is the clinically costlier error. The model with the fewest false negatives
+here should be preferred even if its overall accuracy is marginally lower than another model's.
+
+#+begin_src python :results file :file roc_curves.png
+plt.figure(figsize=(6.5, 6))
+for name, (fpr, tpr, roc_auc) in roc_data.items():
+    plt.plot(fpr, tpr, label=f"{name} (AUC = {roc_auc:.3f})")
+plt.plot([0, 1], [0, 1], "k--", linewidth=1)
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curves -- Bagging vs Boosting vs Stacking")
+plt.legend(loc="lower right")
+plt.tight_layout()
+plt.savefig("roc_curves.png")
+plt.close()
+"roc_curves.png"
+#+end_src
+
+#+CAPTION: ROC curves comparing all three ensemble models
+#+ATTR_LATEX: :width 0.6\linewidth :placement [H]
+#+RESULTS:
+
+*Inference:* The model whose curve hugs the top-left corner most closely, and has the highest
+AUC, separates the two classes best across all decision thresholds, not just the default 0.5
+cutoff used for the confusion matrix above.
+
+#+begin_src python :results file :file learning_curves.png
+fig, axes = plt.subplots(1, 3, figsize=(17, 4.5))
+for ax, (name, model) in zip(axes, models.items()):
+    train_sizes, train_scores, val_scores = learning_curve(
+        model, X_train_scaled, y_train, cv=5, scoring="accuracy",
+        train_sizes=np.linspace(0.1, 1.0, 6), n_jobs=-1
+    )
+    ax.plot(train_sizes, train_scores.mean(axis=1), "o-", label="Training score")
+    ax.plot(train_sizes, val_scores.mean(axis=1), "o-", label="Cross-validation score")
+    ax.set_title(name)
+    ax.set_xlabel("Training set size")
+    ax.set_ylabel("Accuracy")
+    ax.legend()
+plt.tight_layout()
+plt.savefig("learning_curves.png")
+plt.close()
+"learning_curves.png"
+#+end_src
+
+#+CAPTION: Learning curves illustrating bias/variance behaviour of each ensemble
+#+ATTR_LATEX: :width 0.95\linewidth :placement [H]
+#+RESULTS:
+
+*Inference:* A large, persistent gap between the training and cross-validation curves indicates
+high variance (typical of an under-regularized Bagging ensemble); curves that converge to a
+lower plateau together indicate higher bias (undertrained Boosting). The gap should shrink as
+training size grows for a well-tuned model.
+
+#+begin_src python :results output
+for name, model in models.items():
+    print(f"\n=== {name} ===")
+    print(classification_report(y_test, model.predict(X_test_scaled), target_names=target_names))
+#+end_src
+
+* Discussion
+- Bagging reduces *variance* by averaging many independently-trained high-variance trees over
+  bootstrap resamples; it does not directly target bias.
+- Boosting reduces *bias* by sequentially focusing on the hardest, previously misclassified
+  samples, at some risk of overfitting if left unregularized.
+- Stacking benefits from heterogeneous base learners (SVM, Naive Bayes, Decision Tree) because each
+  makes different kinds of errors; the meta-learner can learn to weight each base learner's
+  strengths, typically outperforming any single member and often the homogeneous ensembles too.
+- Compare the strengths/limitations/improvements you observed against the Performance Comparison
+  table and the confusion matrices/ROC curves above once you've run the notebook.
+
+* Conclusion
+Bagging, Boosting, and Stacked Ensemble models were implemented on the WDBC dataset and tuned via
+5-fold cross-validation. Based on the test-set metrics in the Performance Comparison table, state
+which ensemble generalized best and why (typically Stacking, since it combines complementary
+inductive biases from SVM, Naive Bayes, and Decision Tree base learners under a Logistic Regression
+meta-learner).
+
+* References
+- Scikit-learn: Ensemble Methods, https://scikit-learn.org/stable/modules/ensemble.html
+- Scikit-learn: =BaggingClassifier=, https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.BaggingClassifier.html
+- UCI Machine Learning Repository: Breast Cancer Wisconsin (Diagnostic) Data Set, https://archive.ics.uci.edu/dataset/17

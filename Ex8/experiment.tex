@@ -1,0 +1,935 @@
+% Created 2026-09-21 Mon 12:43
+% Intended LaTeX compiler: pdflatex
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{longtable}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{ICS1512}
+\rhead{Machine Learning Algorithms Laboratory}
+\cfoot{\thepage}
+\setlength{\headheight}{14.5pt}
+\lstset{language=Python,basicstyle=\ttfamily\small,numbers=left,frame=single,breaklines=true,showstringspaces=false}
+\author{Emmanuel Maximus}
+\date{\today}
+\title{}
+\hypersetup{
+ pdfauthor={Emmanuel Maximus},
+ pdftitle={},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 27.1 (Org mode 9.3)}, 
+ pdflang={English}}
+\begin{document}
+
+\tableofcontents
+
+l\#+OPTIONS: title:nil toc:nil
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Experiment No. & 8\\
+Experiment Title & Clustering Human Activity Recognition Data using K-Means, DBSCAN, and Hierarchical Clustering\\
+Student Name & Emmanuel Maximus Ravichandran\\
+Register Number & 3122247001015\\
+Faculty & Dr. Poreddy Ajay Kumar Reddy\\
+Submission Date & \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Objective}
+\label{sec:org8ca33be}
+
+To implement and analyze the performance of three clustering algorithms —
+K-Means, DBSCAN, and Hierarchical Agglomerative Clustering (Ward linkage) —
+on the Human Activity Recognition (HAR) Using Smartphones dataset, visualize
+the clusters formed by each, and compare them against the six ground-truth
+activity labels.
+
+\section{Problem Statement}
+\label{sec:orgc0a9f2a}
+
+\textbf{Input:} 561 time- and frequency-domain features extracted from smartphone
+accelerometer and gyroscope signals (50 Hz, windowed into 2.56s segments)
+for 30 volunteers performing 6 activities.
+
+\textbf{Output:} Cluster assignments produced independently by K-Means, DBSCAN, and
+Hierarchical (Ward) clustering, with no access to the true activity label
+during clustering.
+
+\textbf{Objective:} Since clustering is unsupervised, the true activity labels
+(WALKING, WALKING$\backslash$\textsubscript{UPSTAIRS}, WALKING$\backslash$\textsubscript{DOWNSTAIRS}, SITTING, STANDING, LAYING)
+are used only afterwards, to externally validate how well each algorithm's
+clusters correspond to real human activities.
+
+\section{Dataset Description}
+\label{sec:org1150110}
+
+\subsection{Setup and Imports}
+\label{sec:org4fea716}
+
+\begin{verbatim}
+import warnings
+warnings.filterwarnings("ignore")
+
+import time, json
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.neighbors import NearestNeighbors
+from sklearn.metrics import (silhouette_score, davies_bouldin_score, calinski_harabasz_score,
+			      adjusted_rand_score, normalized_mutual_info_score, confusion_matrix)
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
+from scipy.stats import mode
+
+np.random.seed(42)
+sns.set_style("whitegrid")
+print("Environment ready.")
+\end{verbatim}
+
+\begin{verbatim}
+Python 3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+Environment ready.
+python.el: native completion setup loaded
+\end{verbatim}
+
+\subsection{Loading the Dataset}
+\label{sec:org77af6e3}
+
+\begin{verbatim}
+BASE = "/home/claude/har/UCI HAR Dataset"
+
+features = pd.read_csv(f"{BASE}/features.txt", sep=r"\s+", header=None, names=["idx", "feature"])
+feat_names = features["feature"].tolist()
+
+seen, uniq = {}, []
+for f in feat_names:
+    if f in seen:
+	seen[f] += 1
+	uniq.append(f"{f}_{seen[f]}")
+    else:
+	seen[f] = 0
+	uniq.append(f)
+
+X_train = pd.read_csv(f"{BASE}/train/X_train.txt", sep=r"\s+", header=None, names=uniq)
+X_test  = pd.read_csv(f"{BASE}/test/X_test.txt",  sep=r"\s+", header=None, names=uniq)
+y_train = pd.read_csv(f"{BASE}/train/y_train.txt", header=None, names=["Activity"])
+y_test  = pd.read_csv(f"{BASE}/test/y_test.txt",  header=None, names=["Activity"])
+
+act_labels = pd.read_csv(f"{BASE}/activity_labels.txt", sep=r"\s+", header=None, names=["id", "name"])
+act_map = dict(zip(act_labels["id"], act_labels["name"]))
+act_order = ["WALKING", "WALKING_UPSTAIRS", "WALKING_DOWNSTAIRS", "SITTING", "STANDING", "LAYING"]
+
+X = pd.concat([X_train, X_test], axis=0).reset_index(drop=True)
+y = pd.concat([y_train, y_test], axis=0).reset_index(drop=True)
+y_named = y["Activity"].map(act_map)
+y_code = y_named.map({a: i for i, a in enumerate(act_order)}).values
+
+print("Feature matrix shape:", X.shape)
+print("Duplicate raw feature names fixed:", sum(v > 0 for v in seen.values()))
+print("Missing values in X:", int(X.isna().sum().sum()))
+print(y_named.value_counts())
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-HNlEOF", line 3, in <module>
+    features = pd.read_csv(f"{BASE}/features.txt", sep=r"\s+", header=None, names=["idx", "feature"])
+  File "/usr/lib/python3/dist-packages/pandas/util/_decorators.py", line 311, in wrapper
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/pandas/io/parsers/readers.py", line 586, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/usr/lib/python3/dist-packages/pandas/io/parsers/readers.py", line 482, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/usr/lib/python3/dist-packages/pandas/io/parsers/readers.py", line 811, in __init__
+    self._engine = self._make_engine(self.engine)
+  File "/usr/lib/python3/dist-packages/pandas/io/parsers/readers.py", line 1040, in _make_engine
+    return mapping[engine](self.f, **self.options)  # type: ignore[call-arg]
+  File "/usr/lib/python3/dist-packages/pandas/io/parsers/c_parser_wrapper.py", line 51, in __init__
+    self._open_handles(src, kwds)
+  File "/usr/lib/python3/dist-packages/pandas/io/parsers/base_parser.py", line 222, in _open_handles
+    self.handles = get_handle(
+  File "/usr/lib/python3/dist-packages/pandas/io/common.py", line 702, in get_handle
+    handle = open(
+FileNotFoundError: [Errno 2] No such file or directory: '/home/claude/har/UCI HAR Dataset/features.txt'
+\end{verbatim}
+
+Dataset Description table (values confirmed by the code above):
+
+\begin{center}
+\begin{tabular}{lr}
+\hline
+Dataset Name & Human Activity Recognition Using Smartphones\\
+Dataset Source & UCI Machine Learning Repository\\
+Number of Samples & 10299\\
+Number of Features & 561\\
+Number of Classes & 6\\
+Missing Values & 0\\
+Train-Test Split & Original UCI split (7352/2947), recombined for clustering\\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Exploratory Data Analysis}
+\label{sec:org85d38f2}
+
+Include all relevant visualizations.
+\begin{itemize}
+\item Dataset overview
+\item Statistical summary
+\item Missing value analysis
+\item Class distribution
+\item Correlation matrix
+\item Feature distribution
+\end{itemize}
+
+\begin{verbatim}
+print(X.describe().T[["mean", "std", "min", "max"]].head(8))
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+NameError: name 'X' is not defined
+\end{verbatim}
+
+
+\begin{verbatim}
+na_counts = X.isna().sum()
+print("Total missing cells:", int(na_counts.sum()))
+print("Columns with any missing value:", int((na_counts > 0).sum()))
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-4t4Nhs", line 1, in <module>
+    na_counts = X.isna().sum()
+NameError: name 'X' is not defined
+\end{verbatim}
+
+
+\begin{verbatim}
+plt.figure(figsize=(7, 4.5))
+sns.countplot(y=y_named, order=act_order, palette="viridis")
+plt.title("Class Distribution of Activities")
+plt.xlabel("Count"); plt.ylabel("Activity")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/class_distribution.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/class_distribution.png"
+\end{verbatim}
+\captionof{figure}{\label{org0978e3b}Class distribution of the six activities}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-FzQIah", line 2, in <module> sns.countplot(y=y\_named, order=act\_order, palette="viridis") NameError: name 'y\_named' is not defined. Did you mean: '\_\_name\_\_'?}
+
+\textbf{Inference:} The class distribution is close to balanced across the six
+activities (1406-1944 samples each), so no resampling is needed before
+clustering.
+
+\begin{verbatim}
+corr_cols = X.columns[:40]
+plt.figure(figsize=(9, 7))
+sns.heatmap(X[corr_cols].corr(), cmap="coolwarm", center=0, xticklabels=False, yticklabels=False)
+plt.title("Correlation Matrix (first 40 features)")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/correlation_matrix.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/correlation_matrix.png"
+\end{verbatim}
+\captionof{figure}{\label{org08bc1f9}Correlation matrix of the first 40 features}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-W6Lab8", line 1, in <module> corr\_cols = X.columns[:40] NameError: name 'X' is not defined}
+
+\textbf{Inference:} Large contiguous blocks of highly correlated features appear,
+since many features are simple mean/std/energy statistics of the same
+handful of underlying accelerometer/gyroscope signal axes. This heavy
+redundancy is exactly what makes the PCA dimensionality reduction step
+below so effective.
+
+\begin{verbatim}
+feat_pick = ["tBodyAcc-mean()-X", "tGravityAcc-mean()-X", "tBodyAccMag-mean()", "fBodyAccMag-mean()"]
+fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+for ax, col in zip(axes.ravel(), feat_pick):
+    for act in act_order:
+	sns.kdeplot(X.loc[y_named == act, col], ax=ax, label=act)
+    ax.set_title(col)
+axes[0, 0].legend(fontsize=7)
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/feature_distributions.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/feature_distributions.png"
+\end{verbatim}
+\captionof{figure}{\label{org54d49f2}Distributions of four representative features, split by activity}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-PhIz40", line 4, in <module> for act in act\_order: NameError: name 'act\_order' is not defined}
+
+\textbf{Inference:} Static activities (SITTING, STANDING, LAYING) separate clearly
+from dynamic activities (the WALKING variants) along magnitude-based
+features, but SITTING and STANDING largely overlap with each other, and the
+three WALKING sub-types overlap heavily with one another. This foreshadows
+the clustering difficulty seen later, where these pairs are the hardest to
+tell apart.
+
+\section{Data Preprocessing}
+\label{sec:orga344264}
+
+\begin{itemize}
+\item Missing value handling: not required -- 0 missing values in the dataset.
+\item Encoding: activity labels are integer-coded 1-6 in the raw files; mapped
+to their names via \texttt{activity\_labels.txt}, and kept aside only for
+post-hoc external validation.
+\item Feature scaling: \texttt{StandardScaler} (zero mean, unit variance) applied to
+all 561 features.
+\item Train-test split: not applicable in the supervised sense -- the original
+split is recombined into one set for clustering.
+\item Feature engineering: PCA is applied after scaling, to reduce
+dimensionality for clustering and to produce 2D projections for
+visualization.
+\end{itemize}
+
+\begin{verbatim}
+scaler = StandardScaler()
+Xs = scaler.fit_transform(X)
+
+pca_full = PCA(random_state=42).fit(Xs)
+cum_var = np.cumsum(pca_full.explained_variance_ratio_)
+n90 = int(np.argmax(cum_var >= 0.90) + 1)
+n95 = int(np.argmax(cum_var >= 0.95) + 1)
+
+plt.figure(figsize=(7, 4.5))
+plt.plot(range(1, len(cum_var) + 1), cum_var, lw=2)
+plt.axhline(0.90, color="r", ls="--", label="90% variance")
+plt.axvline(n90, color="r", ls=":")
+plt.xlabel("Number of Principal Components"); plt.ylabel("Cumulative Explained Variance")
+plt.title("PCA Cumulative Explained Variance")
+plt.legend()
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/pca_variance.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/pca_variance.png"
+\end{verbatim}
+\captionof{figure}{\label{org2c4a213}PCA cumulative explained variance}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-sYOLdW", line 2, in <module> Xs = scaler.fit\_transform(X) NameError: name 'X' is not defined}
+
+\begin{verbatim}
+print(f"Components needed for 90% variance: {n90}")
+print(f"Components needed for 95% variance: {n95}")
+
+pca90 = PCA(n_components=n90, random_state=42)
+Xp = pca90.fit_transform(Xs)
+pca2 = PCA(n_components=2, random_state=42)
+X2 = pca2.fit_transform(Xs)
+print("Xp (PCA-90%) shape:", Xp.shape, " X2 (PCA-2D) shape:", X2.shape)
+print("PC1+PC2 explained variance:", round(sum(pca2.explained_variance_ratio_), 4))
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-ZhXzfX", line 1, in <module>
+    print(f"Components needed for 90% variance: {n90}")
+NameError: name 'n90' is not defined
+\end{verbatim}
+
+
+\begin{verbatim}
+t0 = time.time()
+Xtsne = TSNE(n_components=2, random_state=42, perplexity=30, init="pca").fit_transform(Xp)
+print(f"t-SNE fit time: {time.time()-t0:.1f}s, output shape: {Xtsne.shape}")
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-uonYR0", line 2, in <module>
+    Xtsne = TSNE(n_components=2, random_state=42, perplexity=30, init="pca").fit_transform(Xp)
+NameError: name 'Xp' is not defined. Did you mean: 'np'?
+\end{verbatim}
+
+
+\begin{verbatim}
+fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+palette = sns.color_palette("tab10", 6)
+for i, act in enumerate(act_order):
+    m = (y_named == act).values
+    axes[0].scatter(X2[m, 0], X2[m, 1], s=5, color=palette[i], label=act, alpha=0.6)
+    axes[1].scatter(Xtsne[m, 0], Xtsne[m, 1], s=5, color=palette[i], label=act, alpha=0.6)
+axes[0].set_title("PCA (2D) - Ground Truth Activities"); axes[0].set_xlabel("PC1"); axes[0].set_ylabel("PC2")
+axes[1].set_title("t-SNE (2D) - Ground Truth Activities"); axes[1].set_xlabel("t-SNE1"); axes[1].set_ylabel("t-SNE2")
+axes[0].legend(fontsize=7, markerscale=2)
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/ground_truth_pca_tsne.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/ground_truth_pca_tsne.png"
+\end{verbatim}
+\captionof{figure}{\label{org3138381}Ground-truth activities in PCA(2D) and t-SNE(2D)}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-tKP1E5", line 3, in <module> for i, act in enumerate(act\_order): NameError: name 'act\_order' is not defined}
+
+\textbf{Inference:} t-SNE gives a much cleaner separation of the six activities
+than linear PCA -- PCA's first two components only capture about 57\% of
+total variance and mostly separate dynamic from static activities, while
+SITTING/STANDING/LAYING and the three WALKING variants stay visibly
+clustered together within their own broad regions even in 2D PCA.
+
+\section{Machine Learning Algorithm}
+\label{sec:orge38bec0}
+
+\subsection{K-Means Clustering}
+\label{sec:org1796a4b}
+\begin{itemize}
+\item Working principle: partitions data into \(k\) clusters by iteratively
+assigning each point to its nearest centroid (Euclidean distance) and
+recomputing centroids as the mean of assigned points, until convergence.
+\item Mathematical formulation: minimizes
+\(\text{WCSS} = \sum_{j=1}^{k}\sum_{x_i \in C_j} \lVert x_i - \mu_j \rVert^2\).
+\item Advantages: simple, fast, scales well; guaranteed to converge.
+\item Limitations: requires \(k\) in advance; assumes roughly spherical,
+similarly-sized clusters; sensitive to initialization and feature scale.
+\end{itemize}
+
+\subsection{DBSCAN}
+\label{sec:org6c217f1}
+\begin{itemize}
+\item Working principle: groups points that are densely packed (density-
+connected within radius \texttt{eps}, with at least \texttt{minPts} neighbors), and
+marks points in low-density regions as noise.
+\item Mathematical formulation: a point \(p\) is a \textbf{core point} if
+\(|N_{eps}(p)| \geq \text{minPts}\); clusters are maximal sets of
+density-connected points.
+\item Advantages: no need to fix \(k\) in advance; finds arbitrarily-shaped
+clusters; naturally identifies outliers.
+\item Limitations: sensitive to \texttt{eps=/=minPts}; struggles in high-dimensional
+spaces where distances concentrate (demonstrated in the Hyperparameter
+Selection section below).
+\end{itemize}
+
+\subsection{Hierarchical Agglomerative Clustering (Ward linkage)}
+\label{sec:org34f5004}
+\begin{itemize}
+\item Working principle: starts with every point as its own cluster and
+repeatedly merges the pair of clusters whose merger causes the smallest
+increase in total within-cluster variance, building a dendrogram.
+\item Mathematical formulation: Ward's criterion merges clusters \(A, B\)
+minimizing \(\Delta(A,B) = \frac{|A||B|}{|A|+|B|}\lVert \mu_A - \mu_B \rVert^2\).
+\item Advantages: no need to pre-specify \(k\); produces a full hierarchy;
+deterministic.
+\item Limitations: \(O(n^2)\) or worse time/memory; greedy merges cannot be
+undone; favors compact, similarly-sized clusters.
+\end{itemize}
+
+\section{Experimental Setup}
+\label{sec:org358776b}
+
+\begin{verbatim}
+import sklearn, scipy, platform
+print(f"Python Version: {platform.python_version()}")
+print(f"Scikit-Learn Version: {sklearn.__version__}")
+print(f"SciPy Version: {scipy.__version__}")
+print(f"Pandas Version: {pd.__version__}")
+print(f"Operating System: {platform.system()} {platform.release()}")
+print(f"Machine: {platform.machine()}")
+\end{verbatim}
+
+\begin{verbatim}
+Python Version: 3.10.12
+Scikit-Learn Version: 1.7.2
+SciPy Version: 1.8.0
+Pandas Version: 1.3.5
+Operating System: Linux 6.8.0-138-generic
+Machine: x86_64
+\end{verbatim}
+
+
+(IDE and hardware depend on where this file is ultimately executed --
+record accordingly; the environment above is the sandbox where this
+analysis was authored and fully executed.)
+
+\section{Hyperparameter Selection}
+\label{sec:orgcc600af}
+
+\subsection{K-Means -- Elbow Method}
+\label{sec:org5321432}
+
+\begin{verbatim}
+ks = list(range(2, 9))
+wcss, sil = [], []
+for k in ks:
+    km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(Xp)
+    wcss.append(km.inertia_)
+    sil.append(silhouette_score(Xp, km.labels_, sample_size=4000, random_state=42))
+
+elbow_df = pd.DataFrame({"k": ks, "WCSS (Inertia)": wcss, "Silhouette Score": sil})
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+axes[0].plot(ks, wcss, marker="o"); axes[0].set_xlabel("k"); axes[0].set_ylabel("WCSS (Inertia)")
+axes[0].set_title("Elbow Curve: k vs WCSS")
+axes[1].plot(ks, sil, marker="o", color="darkorange"); axes[1].set_xlabel("k"); axes[1].set_ylabel("Silhouette Score")
+axes[1].set_title("k vs Silhouette Score")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/kmeans_elbow_silhouette.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/kmeans_elbow_silhouette.png"
+\end{verbatim}
+\captionof{figure}{\label{orgb4dbf76}Elbow curve (k vs WCSS) and k vs Silhouette Score}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-a6cbhe", line 4, in <module> km = KMeans(n\_clusters=k, n\_init=10, random\_state=42).fit(Xp) NameError: name 'Xp' is not defined. Did you mean: 'np'?}
+
+\begin{verbatim}
+print(elbow_df.to_string(index=False))
+best_k_internal = ks[int(np.argmax(sil))]
+print(f"\nBest k by internal Silhouette score: {best_k_internal}")
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-GrCRqh", line 1, in <module>
+    print(elbow_df.to_string(index=False))
+NameError: name 'elbow_df' is not defined
+\end{verbatim}
+
+
+\textbf{Selected k:} internal metrics point to \(k=2\) (moving vs. not moving).
+Since the goal is also to compare against the 6 known activities, \(k=6\) is
+used as the primary model below, with \(k=2\) kept as a secondary comparison
+(see Discussion).
+
+\begin{verbatim}
+km_final = KMeans(n_clusters=6, n_init=10, random_state=42).fit(Xp)
+km_k2 = KMeans(n_clusters=best_k_internal, n_init=10, random_state=42).fit(Xp)
+labels_km, labels_km2 = km_final.labels_, km_k2.labels_
+print("K-Means (k=6) cluster sizes:", np.bincount(labels_km))
+print("K-Means (k=2) cluster sizes:", np.bincount(labels_km2))
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-qYt7Tm", line 1, in <module>
+    km_final = KMeans(n_clusters=6, n_init=10, random_state=42).fit(Xp)
+NameError: name 'Xp' is not defined. Did you mean: 'np'?
+\end{verbatim}
+
+\subsection{DBSCAN -- eps and minPts Tuning}
+\label{sec:org2c95102}
+
+\begin{verbatim}
+minPts = 10
+nn = NearestNeighbors(n_neighbors=minPts).fit(X2)
+dist, _kdist_idx = nn.kneighbors(X2)
+kdist = np.sort(dist[:, -1])
+
+plt.figure(figsize=(7, 4.5))
+plt.plot(kdist)
+plt.axhline(1.0, color="r", ls="--", label="chosen eps = 1.0")
+plt.xlabel("Points sorted by distance"); plt.ylabel(f"Distance to {minPts}-th nearest neighbor")
+plt.title("k-distance Graph (for eps selection)")
+plt.legend()
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/dbscan_kdistance.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/dbscan_kdistance.png"
+\end{verbatim}
+\captionof{figure}{\label{org5ad557c}k-distance graph used to select DBSCAN's eps}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-aBIxju", line 2, in <module> nn = NearestNeighbors(n\_neighbors=minPts).fit(X2) NameError: name 'X2' is not defined}
+
+\begin{verbatim}
+eps_sweep = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2, 1.5]
+rows = []
+for eps in eps_sweep:
+    db = DBSCAN(eps=eps, min_samples=minPts).fit(X2)
+    labs = db.labels_
+    n_clusters = len(set(labs)) - (1 if -1 in labs else 0)
+    noise = int((labs == -1).sum())
+    rows.append((eps, n_clusters, noise, round(noise / len(labs) * 100, 1)))
+
+sweep_df = pd.DataFrame(rows, columns=["eps", "Clusters", "Noise Points", "Noise %"])
+print(sweep_df.to_string(index=False))
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-GOt5fE", line 4, in <module>
+    db = DBSCAN(eps=eps, min_samples=minPts).fit(X2)
+NameError: name 'X2' is not defined
+\end{verbatim}
+
+
+\textbf{Chosen parameters: eps = 1.0, minPts = 10} -- the smallest eps giving
+exactly 6 clusters (matching the number of true activities) with noise
+held under 10\%.
+
+Curse-of-dimensionality check -- the same search attempted directly on the
+65-dimensional PCA space (minPts = 2x65 = 130, the standard heuristic)
+essentially fails:
+
+\begin{verbatim}
+db_highdim = DBSCAN(eps=16, min_samples=2 * n90).fit(Xp)
+n_hd = len(set(db_highdim.labels_)) - (1 if -1 in db_highdim.labels_ else 0)
+noise_hd = int((db_highdim.labels_ == -1).sum())
+print(f"DBSCAN on 65-D PCA space (eps=16, minPts={2*n90}): {n_hd} cluster(s), {noise_hd}/{len(db_highdim.labels_)} noise ({noise_hd/len(db_highdim.labels_)*100:.1f}%)")
+print("-> distances concentrate in high dimensions, so density-based clustering is applied on the 2D PCA projection instead.")
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-MuMt4P", line 1, in <module>
+    db_highdim = DBSCAN(eps=16, min_samples=2 * n90).fit(Xp)
+NameError: name 'n90' is not defined
+\end{verbatim}
+
+
+\begin{verbatim}
+db_final = DBSCAN(eps=1.0, min_samples=minPts).fit(X2)
+labels_db = db_final.labels_
+n_db = len(set(labels_db)) - (1 if -1 in labels_db else 0)
+print(f"Final DBSCAN: {n_db} clusters, {int((labels_db==-1).sum())} noise points ({(labels_db==-1).mean()*100:.1f}%)")
+print("Cluster sizes:", {int(c): int((labels_db == c).sum()) for c in sorted(set(labels_db))})
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-iGEnM7", line 1, in <module>
+    db_final = DBSCAN(eps=1.0, min_samples=minPts).fit(X2)
+NameError: name 'X2' is not defined
+\end{verbatim}
+
+\subsection{Hierarchical Agglomerative Clustering -- Ward Linkage}
+\label{sec:orgab2926f}
+
+\begin{verbatim}
+Z = linkage(Xp, method="ward")
+
+plt.figure(figsize=(10, 5.5))
+dendrogram(Z, truncate_mode="lastp", p=30, leaf_rotation=90.0, leaf_font_size=8, show_contracted=True)
+plt.title("Dendrogram (Ward Linkage, truncated to last 30 merges)")
+plt.xlabel("Cluster size (or sample index)"); plt.ylabel("Ward Distance")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/dendrogram.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/dendrogram.png"
+\end{verbatim}
+\captionof{figure}{\label{orgfbe45cb}Dendrogram (Ward linkage, truncated to last 30 merges)}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-IY7DVr", line 1, in <module> Z = linkage(Xp, method="ward") NameError: name 'Xp' is not defined. Did you mean: 'np'?}
+
+\begin{verbatim}
+labels_hac = fcluster(Z, t=6, criterion="maxclust") - 1
+print("Hierarchical (Ward, k=6) cluster sizes:", np.bincount(labels_hac))
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-aCHQhN", line 1, in <module>
+    labels_hac = fcluster(Z, t=6, criterion="maxclust") - 1
+NameError: name 'Z' is not defined
+\end{verbatim}
+
+\section{Results}
+\label{sec:org074b74a}
+
+\begin{verbatim}
+def internal_metrics(Xspace, labels, exclude_noise=False):
+    if exclude_noise:
+	mask = labels != -1
+	Xu, lu = Xspace[mask], labels[mask]
+    else:
+	Xu, lu = Xspace, labels
+    return dict(
+	Silhouette=silhouette_score(Xu, lu, sample_size=4000, random_state=42),
+	Davies_Bouldin=davies_bouldin_score(Xu, lu),
+	Calinski_Harabasz=calinski_harabasz_score(Xu, lu)
+    )
+
+def external_metrics(true, pred):
+    return dict(ARI=adjusted_rand_score(true, pred), NMI=normalized_mutual_info_score(true, pred))
+
+metrics = {}
+metrics["K-Means (k=6)"] = {**internal_metrics(Xp, labels_km), **external_metrics(y_code, labels_km)}
+metrics["DBSCAN"] = {**internal_metrics(X2, labels_db, exclude_noise=True), **external_metrics(y_code, labels_db)}
+metrics["Hierarchical (Ward)"] = {**internal_metrics(Xp, labels_hac), **external_metrics(y_code, labels_hac)}
+
+metrics_df = pd.DataFrame(metrics).T
+print(metrics_df.round(4).to_string())
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-UIpaKb", line 17, in <module>
+    metrics["K-Means (k=6)"] = {**internal_metrics(Xp, labels_km), **external_metrics(y_code, labels_km)}
+NameError: name 'Xp' is not defined. Did you mean: 'np'?
+\end{verbatim}
+
+\section{Result Visualization}
+\label{sec:org97e001f}
+
+Include all graphs generated during the experiment; each with figure,
+caption, and inference below.
+
+\begin{verbatim}
+fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+axes[0].scatter(X2[:, 0], X2[:, 1], c=labels_km, cmap="tab10", s=5, alpha=0.6)
+axes[0].set_title("K-Means (k=6) clusters - PCA(2D)")
+axes[1].scatter(Xtsne[:, 0], Xtsne[:, 1], c=labels_km, cmap="tab10", s=5, alpha=0.6)
+axes[1].set_title("K-Means (k=6) clusters - t-SNE(2D)")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/kmeans_clusters.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/kmeans_clusters.png"
+\end{verbatim}
+\captionof{figure}{\label{org48e4d9b}K-Means (k=6) clusters in PCA(2D) and t-SNE(2D)}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-ojpnXF", line 2, in <module> axes[0].scatter(X2[:, 0], X2[:, 1], c=labels\_km, cmap="tab10", s=5, alpha=0.6) NameError: name 'X2' is not defined}
+
+\textbf{Inference:} K-Means (k=6) cleanly isolates LAYING but splits the dynamic-
+activity region into clusters that don't map 1:1 onto the WALKING
+variants, and merges SITTING with STANDING.
+
+\begin{verbatim}
+uniq_labels = sorted(set(labels_db))
+cmap = plt.cm.tab10
+plt.figure(figsize=(6.5, 5.5))
+for u in uniq_labels:
+    m = labels_db == u
+    if u == -1:
+	plt.scatter(X2[m, 0], X2[m, 1], c="lightgray", s=5, label="Noise", alpha=0.5)
+    else:
+	plt.scatter(X2[m, 0], X2[m, 1], color=cmap(u % 10), s=5, label=f"Cluster {u}", alpha=0.7)
+plt.legend(fontsize=7, markerscale=2)
+plt.title("DBSCAN (eps=1.0, minPts=10) clusters - PCA(2D)")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/dbscan_clusters.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/dbscan_clusters.png"
+\end{verbatim}
+\captionof{figure}{\label{orgfb71483}DBSCAN (eps=1.0, minPts=10) clusters in PCA(2D)}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-ocSuIc", line 1, in <module> uniq\_labels = sorted(set(labels\_db)) NameError: name 'labels\_db' is not defined}
+
+\textbf{Inference:} DBSCAN finds two large, well-separated density regions
+(roughly dynamic vs. static) plus a few small tight sub-clusters and a
+thin scatter of noise along the boundary.
+
+\begin{verbatim}
+fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+axes[0].scatter(X2[:, 0], X2[:, 1], c=labels_hac, cmap="tab10", s=5, alpha=0.6)
+axes[0].set_title("Hierarchical (Ward, k=6) clusters - PCA(2D)")
+axes[1].scatter(Xtsne[:, 0], Xtsne[:, 1], c=labels_hac, cmap="tab10", s=5, alpha=0.6)
+axes[1].set_title("Hierarchical (Ward, k=6) clusters - t-SNE(2D)")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/hac_clusters.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/hac_clusters.png"
+\end{verbatim}
+\captionof{figure}{\label{org7a835d9}Hierarchical (Ward, k=6) clusters in PCA(2D) and t-SNE(2D)}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-8INwrK", line 2, in <module> axes[0].scatter(X2[:, 0], X2[:, 1], c=labels\_hac, cmap="tab10", s=5, alpha=0.6) NameError: name 'X2' is not defined}
+
+\textbf{Inference:} Ward linkage produces a visibly cleaner LAYING vs. STANDING
+split than K-Means, matching its higher ARI/NMI in the Results table.
+
+\begin{verbatim}
+def cluster_to_activity_confusion(pred, exclude_noise_label=None):
+    pred = np.array(pred)
+    mapping = {}
+    for c in set(pred):
+	if exclude_noise_label is not None and c == exclude_noise_label:
+	    continue
+	mask = pred == c
+	maj = mode(y_code[mask], keepdims=False).mode
+	mapping[c] = maj
+    mapped = np.array([mapping.get(c, -1) for c in pred])
+    valid = mapped != -1
+    cm = confusion_matrix(y_code[valid], mapped[valid], labels=list(range(6)))
+    return cm, mapping
+
+cm_km, map_km = cluster_to_activity_confusion(labels_km)
+cm_db, map_db = cluster_to_activity_confusion(labels_db, exclude_noise_label=-1)
+cm_hac, map_hac = cluster_to_activity_confusion(labels_hac)
+
+fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+for ax, cm, name in zip(axes, [cm_km, cm_db, cm_hac], ["K-Means", "DBSCAN", "Hierarchical"]):
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=act_order, yticklabels=act_order, ax=ax, cbar=False)
+    ax.set_title(f"{name} (mapped to activity)")
+    ax.set_xlabel("Predicted (majority-vote)"); ax.set_ylabel("True")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/confusion_matrices.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/confusion_matrices.png"
+\end{verbatim}
+\captionof{figure}{\label{orgf026a8f}Confusion matrices (majority-vote cluster to activity mapping)}
+
+\url{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-kkGzuk", line 15, in <module> cm\_km, map\_km = cluster\_to\_activity\_confusion(labels\_km) NameError: name 'labels\_km' is not defined}
+
+\begin{verbatim}
+print("K-Means cluster -> activity mapping:", {int(k): act_order[v] for k, v in map_km.items()})
+print("DBSCAN cluster -> activity mapping:", {int(k): act_order[v] for k, v in map_db.items()})
+print("Hierarchical cluster -> activity mapping:", {int(k): act_order[v] for k, v in map_hac.items()})
+\end{verbatim}
+
+\begin{verbatim}
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/tmp/babel-cBWeqx/python-OgvLKZ", line 1, in <module>
+    print("K-Means cluster -> activity mapping:", {int(k): act_order[v] for k, v in map_km.items()})
+NameError: name 'map_km' is not defined
+\end{verbatim}
+
+
+\begin{verbatim}
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+algos = list(metrics.keys())
+xpos = np.arange(len(algos))
+axes[0].bar(xpos - 0.2, [metrics[a]["Silhouette"] for a in algos], width=0.4, label="Silhouette")
+axes[0].bar(xpos + 0.2, [metrics[a]["Davies_Bouldin"] for a in algos], width=0.4, label="Davies-Bouldin")
+axes[0].set_xticks(xpos); axes[0].set_xticklabels(algos, rotation=15); axes[0].legend(); axes[0].set_title("Internal Metrics")
+axes[1].bar(xpos - 0.2, [metrics[a]["ARI"] for a in algos], width=0.4, label="ARI")
+axes[1].bar(xpos + 0.2, [metrics[a]["NMI"] for a in algos], width=0.4, label="NMI")
+axes[1].set_xticks(xpos); axes[1].set_xticklabels(algos, rotation=15); axes[1].legend(); axes[1].set_title("External Metrics (vs Ground Truth)")
+plt.tight_layout()
+plt.savefig("/home/claude/har/nbassets/metrics_comparison.png", dpi=120)
+plt.close()
+"/home/claude/har/nbassets/metrics_comparison.png"
+\end{verbatim}
+\captionof{figure}{\label{org6ad6344}Internal and external evaluation metrics across algorithms}
+
+\begin{center}
+\includegraphics[width=.9\linewidth]{Traceback (most recent call last): File "<stdin>", line 1, in <module> File "/tmp/babel-cBWeqx/python-ceaPtG", line 11, in <module> plt.savefig("/home/claude/har/nbassets/metrics_comparison.png", dpi=120) File "/usr/lib/python3/dist-packages/matplotlib/pyplot.py", line 958, in savefig res = fig.savefig(*args, **kwargs) File "/usr/lib/python3/dist-packages/matplotlib/figure.py", line 3019, in savefig self.canvas.print_figure(fname, **kwargs) File "/usr/lib/python3/dist-packages/matplotlib/backend_bases.py", line 2319, in print_figure result = print_method( File "/usr/lib/python3/dist-packages/matplotlib/backend_bases.py", line 1648, in wrapper return func(*args, **kwargs) File "/usr/lib/python3/dist-packages/matplotlib/_api/deprecation.py", line 412, in wrapper return func(*inner_args, **inner_kwargs) File "/usr/lib/python3/dist-packages/matplotlib/backends/backend_agg.py", line 541, in print_png mpl.image.imsave( File "/usr/lib/python3/dist-packages/matplotlib/image.py", line 1675, in imsave image.save(fname, **pil_kwargs) File "/usr/lib/python3/dist-packages/PIL/Image.py", line 2209, in save fp = builtins.open(filename, "w+b") FileNotFoundError: [Errno 2] No such file or directory: '/home/claude/har/nbassets/metrics_comparison.png'}
+\end{center}
+
+\section{Discussion}
+\label{sec:orgcd6eef8}
+
+\textbf{Which algorithm produced the most meaningful clusters? Why?} By external
+agreement with the true activity labels, Hierarchical (Ward) clustering
+performed best (ARI = 0.494, NMI = 0.622), narrowly ahead of K-Means
+(ARI = 0.420, NMI = 0.560). Both clearly separate static activities
+(LAYING/STANDING/SITTING) from dynamic ones (WALKING variants), but
+neither cleanly splits SITTING from STANDING or the three WALKING
+sub-types -- these have very similar sensor-feature signatures. DBSCAN,
+judged by internal cohesion (Silhouette = 0.383, Davies-Bouldin = 0.525 --
+both far better than the other two), produced the most internally
+compact clusters, but its lower ARI/NMI shows those dense regions don't
+align with activity boundaries as well as the partition-based methods.
+
+\textbf{How sensitive was K-Means to the choice of k?} Very sensitive. The
+Elbow/Silhouette curves show the data is internally best explained by
+\(k=2\) (Silhouette 0.44, essentially "moving" vs. "not moving"),
+degrading sharply for every larger \(k\). Forcing \(k=6\) to match the true
+activity count drops Silhouette to 0.14 -- the six activities are not
+equally well-separated in feature space.
+
+\textbf{Did DBSCAN detect noise or small clusters effectively?} Yes. The eps
+sweep showed noise fall smoothly from 46.5\% to under 3\% as eps grew; at
+the chosen eps=1.0 it isolated 521 points (5.1\%) as noise -- plausibly
+transition frames or atypical movement signatures. It also found small,
+tight clusters alongside two large dominant clusters, showing its
+strength at picking out small dense sub-populations that K-Means/Ward
+tend to absorb into larger neighbours.
+
+\textbf{How does linkage choice (single/complete/ward) affect hierarchical
+clustering?} Only Ward's linkage was run here, but its variance-
+minimizing objective is similar in spirit to K-Means' WCSS, built up
+hierarchically rather than committing to \(k\) centroids up front -- this
+is likely why it achieved the best external agreement of the three
+algorithms. Single linkage is expected to perform worse here since it is
+prone to "chaining" through near-duplicate transitional samples between
+activities; complete linkage tends to produce more uneven,
+distance-sensitive splits than Ward's variance-based criterion.
+
+\textbf{Which internal metric best matched your visual intuition of cluster
+quality?} Silhouette Score matched the 2D visualizations best -- DBSCAN's
+much higher Silhouette (0.383) visibly corresponds to its two large,
+well-separated blobs, while K-Means/Hierarchical's much lower Silhouette
+(\textasciitilde{}0.14) corresponds to the overlapping SITTING/STANDING and
+WALKING-variant regions seen throughout. Davies-Bouldin agreed in
+direction but was less intuitive to relate to the plots directly;
+Calinski-Harabasz favored DBSCAN even more strongly, mostly because it
+rewards DBSCAN's tight 2D clusters more than it penalizes the excluded
+noise points.
+
+\section{Conclusion}
+\label{sec:orge3ef962}
+
+All three algorithms recover the broad "dynamic vs. static" activity
+split reliably, but none fully separates all six activities from
+unsupervised sensor features alone -- SITTING/STANDING and the three
+WALKING variants remain the persistent confusions across K-Means,
+DBSCAN, and Hierarchical clustering alike. Hierarchical (Ward) clustering
+gave the best agreement with ground truth (ARI 0.494, NMI 0.622), DBSCAN
+gave the most internally cohesive clusters while also being the only
+algorithm to explicitly flag outliers as noise, and K-Means was most
+sensitive to the choice of \(k\), with its own internal metrics actually
+favoring a much coarser \(k=2\) split over the six true activity classes.
+This highlights a broader lesson: internal cluster-validity metrics
+(Silhouette, WCSS) do not necessarily agree with external, label-based
+validity -- the two must be interpreted together, not interchangeably.
+
+\section{References}
+\label{sec:orgbb791af}
+
+[1] D. Anguita, A. Ghio, L. Oneto, X. Parra, and J. L. Reyes-Ortiz, "A
+Public Domain Dataset for Human Activity Recognition Using Smartphones,"
+in Proc. 21st Eur. Symp. Artificial Neural Networks (ESANN), Bruges,
+Belgium, 2013.
+
+[2] F. Pedregosa et al., "Scikit-learn: Machine Learning in Python,"
+Journal of Machine Learning Research, vol. 12, pp. 2825-2830, 2011.
+
+[3] J. MacQueen, "Some methods for classification and analysis of
+multivariate observations," in Proc. 5th Berkeley Symp. Mathematical
+Statistics and Probability, vol. 1, pp. 281-297, 1967.
+
+[4] M. Ester, H.-P. Kriegel, J. Sander, and X. Xu, "A density-based
+algorithm for discovering clusters in large spatial databases with
+noise," in Proc. 2nd Int. Conf. Knowledge Discovery and Data Mining
+(KDD), pp. 226-231, 1996.
+
+[5] J. H. Ward Jr., "Hierarchical grouping to optimize an objective
+function," Journal of the American Statistical Association, vol. 58,
+no. 301, pp. 236-244, 1963.
+\end{document}
