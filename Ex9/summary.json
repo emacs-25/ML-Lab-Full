@@ -1,0 +1,35 @@
+{
+  "pla_metrics": {
+    "Model": "PLA",
+    "Accuracy": 0.12463343108504399,
+    "Precision": 0.17619740779963067,
+    "Recall": 0.12463343108504399,
+    "F1-score": 0.08489186028098439
+  },
+  "mlp_metrics": {
+    "Model": "Tuned MLP",
+    "Accuracy": 0.4340175953079179,
+    "Precision": 0.48703275979691635,
+    "Recall": 0.43401759530791784,
+    "F1-score": 0.4285714445627222
+  },
+  "best_params": {
+    "activation": "tanh",
+    "hidden_layer_sizes": [
+      128,
+      64
+    ],
+    "learning_rate_init": 0.01,
+    "solver": "sgd"
+  },
+  "best_cv_acc": 0.3643689277352644,
+  "bs_results": {
+    "32": 0.38563049853372433,
+    "64": 0.4340175953079179,
+    "128": 0.4002932551319648
+  },
+  "roc_auc_pla_micro": 0.833069087446591,
+  "roc_auc_pla_macro": 0.8449014688979112,
+  "roc_auc_mlp_micro": 0.9255525866467338,
+  "roc_auc_mlp_macro": 0.9248495483171698
+}
